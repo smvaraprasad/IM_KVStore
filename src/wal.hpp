@@ -5,7 +5,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include <unordered_map>
+#include <utility>
 #include <cstdint>
 #include <filesystem>
 
@@ -32,6 +32,10 @@ class Wal{
     private:
         std::string wal_path;
         std::ofstream log_stream;
+
+        bool write_record(WalOp op, const std::string &key, const std::string& value);
+        void flush();
+
     public:
         explicit Wal(const std::string& filepath);
         ~Wal();
@@ -43,7 +47,7 @@ class Wal{
         bool log_delete(const std::string& key);
 
         std::vector<WalRecord> recover();
-        bool compact();
+        bool compact(const std::vector<std::pair<std::string, std::string>>& snapshot);
         
 };
 #endif

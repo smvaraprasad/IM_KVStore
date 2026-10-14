@@ -1,14 +1,14 @@
 #ifndef CLI_HPP
 #define CLI_HPP
-#include "engine.hpp"
+#include "kvstore.hpp"
 
 class Cli {
     private:
-        Engine& db;
+        KeyValueStore& db;
         void print_help() const;
 
     public:
-        explicit Cli(Engine& engine);
+        explicit Cli(KeyValueStore& store);
         void run(); 
 };
 

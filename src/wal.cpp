@@ -1,5 +1,9 @@
 #include "wal.hpp"
-
+#include <iostream>
+#if defined(__unix__) || defined(__APPLE__)
+#include <unistd.h>
+#include <fcntl.h>
+#endif
 
 Wal::Wal(const std::string& filepath): wal_path(filepath){
 
@@ -17,31 +21,41 @@ Wal::~Wal(){
     }
 }
 
+void Wal::flush(){
+    if(!log_stream.is_open()) return;
+    log_stream.flush();
 
-bool Wal::log_put(const std::string& key, const std::string& value){
+#if defined(__unix__) || defined(__APPLE__)
+    int fd=open(wal_path.c_str(), O_WRONLY | O_APPEND);
+    if(fd!=-1){
+        fsync(fd);
+        close(fd);
+    }
+#endif
+}
+
+
+bool Wal::write_record(WalOp op, const std::string &key, const std::string& value) {
     if(!log_stream.is_open()) return false;
     WalHeader header;
-    header.op=static_cast<uint8_t>(WalOp::PUT);
+    header.op=static_cast<uint8_t>(op);
     header.key_len=static_cast<uint32_t>(key.size());
-    header.val_len=static_cast<uint32_t>(value.size());
-
+    header.val_len=(op==WalOp::PUT)?static_cast<uint32_t>(value.size()):0;
     log_stream.write(reinterpret_cast<const char*>(&header), sizeof(WalHeader));
     log_stream.write(key.data(), key.size());
-    log_stream.write(value.data(), value.size());
-    log_stream.flush();
+
+    if(op==WalOp::PUT && !value.empty()){
+        log_stream.write(value.data(), value.size());
+    }
+    flush();
     return log_stream.good();
+}
+bool Wal::log_put(const std::string& key, const std::string& value){
+    return write_record(WalOp::PUT , key, value);
 }
 
 bool Wal::log_delete(const std::string&key){
-    if(!log_stream.is_open()) return false;
-    WalHeader header;
-    header.op=static_cast<uint8_t>(WalOp::DELETE);
-    header.key_len=static_cast<uint32_t>(key.size());
-    header.val_len=0;
-    log_stream.write(reinterpret_cast<const char*>(&header) , sizeof(WalHeader));
-    log_stream.write(key.data(), key.size());
-    log_stream.flush();
-    return log_stream.good();
+    return write_record(WalOp::DELETE, key, "");
 }
 
 
@@ -54,10 +68,17 @@ std::vector<WalRecord> Wal::recover(){
 
     while(in_stream.peek()!=EOF){
         WalHeader header;
+        //reads the WalHeader sized bytes into the header variable initialised above
+        //&header is the address of the header variable, of type WalHeader* ptr, pointer arithmetic over this
+        //mem add would be in terms of sizeof(WalHeader) bytes, so we cast it to char* to read the bytes correctly
+        //to allow in_stream.read to read the bytes one by one, as char* conversion, makes the pointer arithmetic go one by one, since char is of size 1
+
         in_stream.read(reinterpret_cast<char*>(&header), sizeof(WalHeader));
+
+        //gcount, is the successful read bytes, if it is less than the size of WalHeader, then we have an incomplete record, so we break the loop
+        //streamsize is the signed int type returned by in_stream, sizeof just returns unsigned int type, hence the conversion.
         if(in_stream.gcount() < static_cast<std::streamsize>(sizeof(WalHeader))){
             break;
-            std::cout<<"read failed midway"<<"\n";
         }
         WalRecord record;
         record.op=static_cast<WalOp>(header.op);
@@ -84,27 +105,35 @@ std::vector<WalRecord> Wal::recover(){
 }
 
 
-bool Wal::compact(){
-    std::vector<WalRecord> records=recover();
-    std::unordered_map<std::string, std::string> active_state;
-    for(const auto&rec: records){
-        if(rec.op==WalOp::PUT){
-            active_state[rec.key]=rec.value;
-        }else if(rec.op==WalOp::DELETE){
-            active_state.erase(rec.key);
+bool Wal::compact(const std::vector<std::pair<std::string, std::string>> & snapshot){
+    std::string temp_path =wal_path + ".tmp";
+    {
+        std::ofstream truncate_stream(temp_path, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!truncate_stream.is_open()) {
+            std::cerr << "[WAL Error] Failed to create temporary WAL: " << temp_path << "\n";
+            return false;
         }
     }
-    std::string temp_path=wal_path+ ".tmp";
-    {   
+    {
         Wal temp_wal(temp_path);
-        for(const auto&[key, value] : active_state){
-            temp_wal.log_put(key, value);
+        for(const auto & [key, value]:snapshot){
+            if(!temp_wal.log_put(key, value)){
+                std::cerr << "[WAL Error] Completion failed writing record to temp WAL.\n";
+                return false;
+            }
         }
     }
+
     if(log_stream.is_open()){
         log_stream.close();
     }
-    std::filesystem::rename(temp_path, wal_path);
-    log_stream.open(wal_path, std::ios::out|std::ios::binary|std::ios::app);
+    std::error_code ec;
+    std::filesystem::rename(temp_path, wal_path, ec);
+    if(ec){
+        std::cerr << "[WAL Error] Failed atomically renaming temp WAL: " << ec.message() << "\n";
+        log_stream.open(wal_path, std::ios::out | std::ios::binary | std::ios::app);
+        return false;
+    }
+    log_stream.open(wal_path, std::ios::out | std::ios::binary | std::ios::app);
     return log_stream.is_open();
 }

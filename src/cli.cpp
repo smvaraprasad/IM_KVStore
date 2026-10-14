@@ -3,14 +3,14 @@
 #include <sstream>
 #include <string>
 
-Cli::Cli(Engine& engine) : db(engine) {}
+Cli::Cli(KeyValueStore& store) : db(store) {}
 
 void Cli::print_help() const {
     std::cout << "\n=== Storage Engine Commands ===\n"
               << "  PUT <key> <val>  : Insert or update a key-value pair\n"
               << "  GET <key>        : Fetch value for a given key\n"
               << "  DEL <key>        : Remove key from database\n"
-              << "  SCAN             : Display all key-value pairs in order\n"
+              << "  SCAN [start] [end]: Display sorted pairs in an inclusive range\n"
               << "  COMPACT          : Rewrite WAL file to reclaim space\n"
               << "  HELP             : Show command list\n"
               << "  EXIT             : Shutdown storage engine\n"
@@ -78,9 +78,19 @@ void Cli::run(){
                 }
             }
         }else if(command=="SCAN"){
-            db.scan();
+            std::string start_key;
+            std::string end_key;
+            ss >> start_key >> end_key;
+            const auto entries = db.scan(start_key, end_key);
+            for (const auto& [key, value] : entries) {
+                std::cout << key << " -> " << value << "\n";
+            }
         }else if(command=="COMPACT"){
-            db.compact_log();
+            if (db.compact()) {
+                std::cout << "OK\n";
+            } else {
+                std::cout << "(error) Compaction failed\n";
+            }
         }else{
             std::cout << "Unknown commad: '" << command << "'. Type HELP for command list. \n";
         }

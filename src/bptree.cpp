@@ -15,6 +15,7 @@ Bptree<K, V>::Node::Node(bool leaf) : is_leaf(leaf), next(nullptr), prev(nullptr
 template<typename K, typename V>
 Bptree<K, V>::Bptree() : root(new Node(true)) {}
 
+//destructor of the b+tree, implementation easy, as we have defined clear of node.
 template<typename K, typename V>
 Bptree<K, V>::~Bptree() {
     clear(root);
@@ -26,6 +27,7 @@ size_t Bptree<K, V>::find_key_index(const Node* node, const K& key) const {
     return std::distance(node->keys.begin(), it);
 }
 
+//helps in recursively cleaning
 template<typename K, typename V>
 void Bptree<K, V>::clear(Node* node) {
     if (node == nullptr) return;
@@ -244,19 +246,21 @@ bool Bptree<K, V>::remove(const K& key) {
 }
 
 template<typename K, typename V>
-void Bptree<K, V>::scan_all() const {
-    if (root == nullptr) return;
-    Node* curr = root;
+std::vector<std::pair<K,V>> Bptree<K, V>::scan_all() const {
+    std::vector<std::pair<K,V>> results;
+    if (root == nullptr) return results;
+    const Node* curr = root;
     while (!curr->is_leaf) {
         curr = curr->children[0];
     }
 
     while (curr != nullptr) {
         for (size_t i = 0; i < curr->keys.size(); ++i) {
-            std::cout << curr->keys[i] << " -> " << curr->values[i] << "\n";
+            results.emplace_back(curr->keys[i], curr->values[i]);
         }
         curr = curr->next;
     }
+    return results;
 }
 
 // ============================================================================

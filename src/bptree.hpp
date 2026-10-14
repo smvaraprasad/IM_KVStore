@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <optional>
 #include <utility>
-#include <iostream>
+#include <string>
 
 using std::vector;
 
@@ -43,7 +43,7 @@ public:
     Bptree();
     ~Bptree();
 
-    // Prevent copies
+    // Prevent copies, blocks copy thru assignment
     Bptree(const Bptree&) = delete;
     Bptree& operator=(const Bptree&) = delete;
 
@@ -51,7 +51,8 @@ public:
     bool search(const K& key, V& out_value) const;
     void insert(const K& key, const V& value);
     bool remove(const K& key);
-    void scan_all() const;
+    std::vector<std::pair<K,V>> scan_all() const;
+
 };
 
 #endif // BPTREE_HPP
